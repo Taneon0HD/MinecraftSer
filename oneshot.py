@@ -1498,8 +1498,10 @@ def get_network_interfaces():
 
 def validate_interface(interface):
     """Valida que una interfaz sea funcional usando la misma lógica robusta que diagnose_interface"""
+    log_message(f"=== INICIANDO VALIDACIÓN DE {interface} ===", "DEBUG")
     try:
         # 1. Verificar que la interfaz existe en el sistema
+        log_message(f"Paso 1: Verificando existencia de {interface}...", "DEBUG")
         result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True, timeout=10)
         if result.returncode != 0:
             log_message(f"Error listando interfaces: {result.stderr}", "DEBUG")
@@ -1512,23 +1514,30 @@ def validate_interface(interface):
                 iface_name = line.split(': ')[1].split('@')[0]
                 if iface_name == interface:
                     interface_found = True
+                    log_message(f"Paso 1: ✓ Interfaz {interface} encontrada", "DEBUG")
                     break
         
         if not interface_found:
-            log_message(f"Interfaz {interface} no encontrada en el sistema", "DEBUG")
+            log_message(f"Paso 1: ✗ Interfaz {interface} no encontrada en el sistema", "DEBUG")
             return False
         
         # 2. Verificar capacidades wireless
+        log_message(f"Paso 2: Verificando capacidades wireless de {interface}...", "DEBUG")
         result = subprocess.run(['iw', interface, 'info'], capture_output=True, text=True, timeout=5)
+        log_message(f"Paso 2: Comando 'iw {interface} info' - Return code: {result.returncode}", "DEBUG")
+        
         if result.returncode != 0:
-            log_message(f"Interfaz {interface} no tiene capacidades wireless: {result.stderr}", "DEBUG")
+            log_message(f"Paso 2: ✗ Error en iw info - stdout: {result.stdout}", "DEBUG")
+            log_message(f"Paso 2: ✗ Error en iw info - stderr: {result.stderr}", "DEBUG")
             return False
+        else:
+            log_message(f"Paso 2: ✓ Capacidades wireless confirmadas", "DEBUG")
             
-        log_message(f"Interfaz {interface} validada correctamente", "DEBUG")
+        log_message(f"=== VALIDACIÓN DE {interface} EXITOSA ===", "DEBUG")
         return True
         
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-        log_message(f"Error validando interfaz {interface}: {e}", "DEBUG")
+        log_message(f"=== ERROR EN VALIDACIÓN DE {interface}: {e} ===", "DEBUG")
         return False
 
 def diagnose_interface(interface):
@@ -2013,6 +2022,14 @@ if __name__ == '__main__':
         log_message(f"Activando interfaz {args.interface}...", "INFO")
         if not safe_interface_up(args.interface):
             die(f'No se pudo activar la interfaz "{args.interface}"')
+        
+        # Desconectar la interfaz de cualquier red antes de usarla para ataques
+        log_message(f"Desconectando {args.interface} de redes existentes...", "DEBUG")
+        try:
+            subprocess.run(['iw', args.interface, 'disconnect'], capture_output=True, timeout=5)
+            time.sleep(2)  # Esperar a que se desconecte
+        except:
+            pass  # No es crítico si falla
         
         # Ahora validar completamente que la interfaz tiene capacidades wireless
         log_message(f"Validando capacidades wireless de {args.interface}...", "DEBUG")
