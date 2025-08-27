@@ -1497,20 +1497,38 @@ def get_network_interfaces():
     return valid_interfaces
 
 def validate_interface(interface):
-    """Valida que una interfaz sea funcional"""
+    """Valida que una interfaz sea funcional usando la misma lógica robusta que diagnose_interface"""
     try:
-        # Verificar que la interfaz existe
-        result = subprocess.run(['ip', 'link', 'show', interface], 
-                              capture_output=True, text=True, stderr=subprocess.DEVNULL, timeout=5)
+        # 1. Verificar que la interfaz existe en el sistema
+        result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True, timeout=10)
         if result.returncode != 0:
+            log_message(f"Error listando interfaces: {result.stderr}", "DEBUG")
+            return False
+            
+        # Buscar la interfaz en la lista
+        interface_found = False
+        for line in result.stdout.split('\n'):
+            if ': ' in line and not line.startswith(' '):
+                iface_name = line.split(': ')[1].split('@')[0]
+                if iface_name == interface:
+                    interface_found = True
+                    break
+        
+        if not interface_found:
+            log_message(f"Interfaz {interface} no encontrada en el sistema", "DEBUG")
             return False
         
-        # Verificar capacidades wireless
-        result = subprocess.run(['iw', interface, 'info'], 
-                              capture_output=True, text=True, stderr=subprocess.DEVNULL, timeout=5)
-        return result.returncode == 0
+        # 2. Verificar capacidades wireless
+        result = subprocess.run(['iw', interface, 'info'], capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            log_message(f"Interfaz {interface} no tiene capacidades wireless: {result.stderr}", "DEBUG")
+            return False
+            
+        log_message(f"Interfaz {interface} validada correctamente", "DEBUG")
+        return True
         
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        log_message(f"Error validando interfaz {interface}: {e}", "DEBUG")
         return False
 
 def diagnose_interface(interface):
