@@ -778,17 +778,6 @@ class AdvancedWPSAttacks:
         }
         
         return vendor_ouis.get(oui, 'Unknown')
-            ['WPS_REG', 'DISCONNECT', 'WPS_REG'],
-            ['WPS_PIN', 'WPS_CANCEL', 'WPS_PIN'],
-        ]
-        
-        for sequence in confusion_sequences:
-            log_message(f"Secuencia de confusión: {' -> '.join(sequence)}", "VULN")
-            if self._execute_confusion_sequence(bssid, sequence):
-                log_message(f"¡State Confusion exitosa!", "SUCCESS", preview_mode=True)
-                return True
-        
-        return False
 
 
 class Companion:
