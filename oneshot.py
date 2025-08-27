@@ -1513,6 +1513,83 @@ def validate_interface(interface):
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
         return False
 
+def diagnose_interface(interface):
+    """Diagnóstico detallado de la interfaz para identificar problemas"""
+    log_message(f"=== DIAGNÓSTICO DE INTERFAZ {interface} ===", "DEBUG")
+    
+    # 1. Verificar si existe el comando ip
+    try:
+        result = subprocess.run(['which', 'ip'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            log_message(f"✓ Comando 'ip' encontrado en: {result.stdout.strip()}", "DEBUG")
+        else:
+            log_message("✗ Comando 'ip' no encontrado", "ERROR")
+            return False
+    except Exception as e:
+        log_message(f"✗ Error verificando comando 'ip': {e}", "ERROR")
+        return False
+    
+    # 2. Listar todas las interfaces disponibles
+    try:
+        result = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            log_message("✓ Interfaces disponibles:", "DEBUG")
+            interfaces = []
+            for line in result.stdout.split('\n'):
+                if ': ' in line and not line.startswith(' '):
+                    iface_name = line.split(': ')[1].split('@')[0]
+                    interfaces.append(iface_name)
+                    log_message(f"  - {iface_name}", "DEBUG")
+            
+            if interface in interfaces:
+                log_message(f"✓ Interfaz {interface} encontrada en el sistema", "DEBUG")
+            else:
+                log_message(f"✗ Interfaz {interface} NO encontrada. Interfaces disponibles: {', '.join(interfaces)}", "ERROR")
+                return False
+        else:
+            log_message(f"✗ Error listando interfaces: {result.stderr}", "ERROR")
+            return False
+    except Exception as e:
+        log_message(f"✗ Error listando interfaces: {e}", "ERROR")
+        return False
+    
+    # 3. Verificar estado específico de la interfaz
+    try:
+        result = subprocess.run(['ip', 'link', 'show', interface], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            log_message(f"✓ Detalles de {interface}:", "DEBUG")
+            for line in result.stdout.split('\n'):
+                if line.strip():
+                    log_message(f"  {line.strip()}", "DEBUG")
+        else:
+            log_message(f"✗ Error obteniendo detalles de {interface}: {result.stderr}", "ERROR")
+            return False
+    except Exception as e:
+        log_message(f"✗ Error obteniendo detalles de {interface}: {e}", "ERROR")
+        return False
+    
+    # 4. Verificar si tiene capacidades wireless (opcional para diagnóstico)
+    try:
+        result = subprocess.run(['which', 'iw'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            log_message(f"✓ Comando 'iw' encontrado", "DEBUG")
+            result = subprocess.run(['iw', interface, 'info'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                log_message(f"✓ {interface} tiene capacidades wireless", "DEBUG")
+                log_message(f"  Información wireless:", "DEBUG")
+                for line in result.stdout.split('\n')[:5]:  # Solo las primeras 5 líneas
+                    if line.strip():
+                        log_message(f"    {line.strip()}", "DEBUG")
+            else:
+                log_message(f"⚠ {interface} no parece tener capacidades wireless: {result.stderr}", "WARNING")
+        else:
+            log_message("⚠ Comando 'iw' no encontrado (normal en algunos sistemas)", "WARNING")
+    except Exception as e:
+        log_message(f"⚠ Error verificando capacidades wireless: {e}", "WARNING")
+    
+    log_message(f"=== FIN DIAGNÓSTICO {interface} ===", "DEBUG")
+    return True
+
 def basic_interface_check(interface):
     """Verificación básica de que la interfaz existe (sin verificar capacidades wireless)"""
     try:
@@ -1897,7 +1974,12 @@ if __name__ == '__main__':
         if not args.interface:
             die("No se especificó interfaz. Usar -i <interfaz> o modo interactivo")
         
-        # Verificación básica de que la interfaz existe
+        # Diagnóstico detallado de la interfaz
+        log_message(f"Verificando interfaz {args.interface}...", "INFO")
+        if not diagnose_interface(args.interface):
+            die(f"La interfaz {args.interface} no es válida o no está disponible")
+        
+        # Verificación básica adicional
         if not basic_interface_check(args.interface):
             die(f"La interfaz {args.interface} no existe en el sistema")
         
