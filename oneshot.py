@@ -1979,9 +1979,8 @@ if __name__ == '__main__':
         if not diagnose_interface(args.interface):
             die(f"La interfaz {args.interface} no es válida o no está disponible")
         
-        # Verificación básica adicional
-        if not basic_interface_check(args.interface):
-            die(f"La interfaz {args.interface} no existe en el sistema")
+        # Si el diagnóstico pasa, la interfaz es válida
+        log_message(f"✅ Interfaz {args.interface} validada correctamente", "SUCCESS")
         
         # Configuración MediaTek WiFi
         if args.mtk_wifi:
