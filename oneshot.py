@@ -1513,6 +1513,17 @@ def validate_interface(interface):
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
         return False
 
+def basic_interface_check(interface):
+    """Verificación básica de que la interfaz existe (sin verificar capacidades wireless)"""
+    try:
+        # Solo verificar que la interfaz existe en el sistema
+        result = subprocess.run(['ip', 'link', 'show', interface], 
+                              capture_output=True, text=True, stderr=subprocess.DEVNULL, timeout=5)
+        return result.returncode == 0
+        
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        return False
+
 def safe_interface_up(interface, max_retries=3):
     """Activa una interfaz de red de forma segura con reintentos"""
     for attempt in range(max_retries):
@@ -1886,9 +1897,9 @@ if __name__ == '__main__':
         if not args.interface:
             die("No se especificó interfaz. Usar -i <interfaz> o modo interactivo")
         
-        # Validar interfaz antes de continuar
-        if not validate_interface(args.interface):
-            die(f"La interfaz {args.interface} no es válida o no está disponible")
+        # Verificación básica de que la interfaz existe
+        if not basic_interface_check(args.interface):
+            die(f"La interfaz {args.interface} no existe en el sistema")
         
         # Configuración MediaTek WiFi
         if args.mtk_wifi:
@@ -1903,6 +1914,11 @@ if __name__ == '__main__':
         log_message(f"Activando interfaz {args.interface}...", "INFO")
         if not safe_interface_up(args.interface):
             die(f'No se pudo activar la interfaz "{args.interface}"')
+        
+        # Ahora validar completamente que la interfaz tiene capacidades wireless
+        log_message(f"Validando capacidades wireless de {args.interface}...", "DEBUG")
+        if not validate_interface(args.interface):
+            die(f"La interfaz {args.interface} no tiene capacidades wireless o no está funcionando correctamente")
 
         # Bucle principal con manejo robusto de errores
         log_message("Iniciando bucle principal de ataques...", "INFO")
